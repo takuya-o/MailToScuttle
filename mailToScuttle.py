@@ -35,6 +35,7 @@ class MyHTMLParser(HTMLParser):
                         self.flg=True
     def handle_data(self, data):
         if self.flg:
+            data=re.sub(r"\s", "", data)
             url.append({'url': self.last, 'title':data, 'desc': "", 'tags': "", 'private': False})
             self.flg=False
         #TODO: urlとdescriptしか対応できていない。最低でもtagsとかほしいよね
@@ -49,13 +50,13 @@ class MyTextParser():
     desc = ""
     tags = ""
     private = False
-    urlflg = False
+    uriflg = False
     subject = ""
     def flash(self):
         #print "Flash: " + self.uri
         if self.uri != "":
             if self.title== "": #タイトル無いときにはメールSubjectで代替
-                self.title = self.subject
+                self.title = re.sub(r"\s", "", self.subject)
                 self.subject = "" #一度つかったらクリア
             url.append({'url': self.uri, 'title': self.title, 'desc': self.desc, 'tags': self.tags,
                       'private': self.private});
@@ -77,20 +78,27 @@ class MyTextParser():
                 self.uri = matched.group()
                 self.uriflg = True
                 #print "FIND url:" + self.uri
-            elif re.search(r"^\s*title:\s", line, re.IGNORECASE):
-                self.title = line.sub(r"^\s*title:\s", "", line, re.IGNORECASE)
+            elif re.search(r"^\s*title:\s+", line, re.IGNORECASE):
+                self.title = re.sub(r"\s", "",
+                                    re.sub(r"^\s*[tT][iI][tT][lL][eE]:\s+",
+                                           "", line))
                 #print "FIND title:" + self.title
-            elif re.search(r"^\s*desc:\s", line, re.IGNORECASE):
-                self.desc = line.sub(r"^\s*desc:\s", "", line, re.IGNORECASE)
+            elif re.search(r"^\s*desc:\s+", line, re.IGNORECASE):
+                self.desc = re.sub(r"\s", "",
+                                   re.sub(r"^\s*[dD][eE][sS][cC]:\s+",
+                                          "", line))
                 #print "FIND desc:" + self.desc
-            elif re.search(r"^\s*tags:\s", line, re.IGNORECASE):
-                self.tags = line.sub(r"^\s*tags:\s", "", line, re.IGNORECASE)
+            elif re.search(r"^\s*tags:\s+", line, re.IGNORECASE):
+                self.tags = re.sub(r",", " ",
+                                   re.sub(r"^\s*[tT][aA][gG][sS]:\s+",
+                                          "",line))
                 #print "FIND tags:" + self.tags
-            elif re.search(r"^\s*private:\s", line, re.IGNORECASE):
-                self.private = ( line.sub(r"^\s*private:\s", "", line, re.IGNORECASE) == "True" )
+            elif re.search(r"^\s*private:\s+", line, re.IGNORECASE):
+                self.private = ( re.sub(r"^\s*[pP][rR][iI][vV][aA][tT][eE]:\s+",
+                                        "", line) == "True" )
                 #print "FIND private:" + str(self.tags)
-            elif self.uriflg and self.tile == "":
-                self.title = line.sub(r"^\s*", "", line, re.IGNORECASE)
+            elif self.uriflg and self.title == "":
+                self.title = re.sub(r"^\s*", "", line)
                 #print "FIND title:" + self.title
             self.uriflg=False #urlの次の行だけね
         self.flash()
@@ -141,15 +149,30 @@ def main():
     #メッセージBodyを読み込む マルチパート対策
     body = ""
     if msg.is_multipart():
+        #print "=== Multipart"
         for payload in msg.get_payload():
-            if payload.get_content_type() == "text/html":
+            #print "===  " + payload.get_content_type()
+            if payload.get_content_type() == "multipart/related":
+                for payload2 in payload.get_payload():
+                    #print "===  " + payload2.get_content_type()
+                    if payload2.get_content_type() == "text/html":
+                        #print "===  find HTML"
+                        body = payload2.get_payload(decode=True)
+                        #aレコードを取り出す
+                        parser = MyHTMLParser()
+                        parser.feed(body)
+                        parser.close()
+            elif payload.get_content_type() == "text/html":
+                #print "===  find HTML"
                 body = payload.get_payload(decode=True)
                 #aレコードを取り出す
                 parser = MyHTMLParser()
                 parser.feed(body)
                 parser.close()
     else:
+        #print "=== Single Part"
         if msg.get_content_type() == "text/plain":
+            #print "===  find TEXT"
             body = msg.get_payload(decode=True)
             #urlを取り出す
             myparser = MyTextParser()
@@ -174,6 +197,8 @@ def main():
                 d['tags'] = "Windows" + " autoTag"
             if re.search("SIM", d['title']):
                 d['tags'] = "SIM" + " autoTag"
+            else:
+                d['tags'] = "autoTag"
 
         #POSTパラメータは二つ目の引数に辞書で指定する
         response = requests.post(

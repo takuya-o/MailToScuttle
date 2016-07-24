@@ -10,7 +10,7 @@ if [ "$NAME" == "release.sh" ];then
 fi
 
 git checkout master
-git ls-files >$LIST
+git ls-files |egrep -v "(test|example)"/ >$LIST
 tar cfz $FILE `cat $LIST`
 
 git checkout release
@@ -19,9 +19,13 @@ git add `cat $LIST`
 
 #git mvや git delが必要かも
 #内容確認後 git commit
+#まだ、test/ exmaple/はgithubに未公開
 
-#そしたらgithubなどにpush
+#そしたらtagつけてgithubなどにpush
+#git tag V1.0
 #git push origin
-#git push -u github release:master
+#git push origin V1.0
+#git push -u github release:master   #-u済みでも明示しないとreleaseブランチ行く
+#git push github V1.0
 
 exit 0

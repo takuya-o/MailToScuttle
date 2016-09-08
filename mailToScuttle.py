@@ -11,34 +11,55 @@ import re
 import requests
 
 #Global変数
-url = [];
+url = [];  # 連想記憶 {'url' 'title' 'desc' 'tags' private'}の配列
 
 class MyHTMLParser(HTMLParser):
-    flg=False
-    last=""
+    #HTML形式のメール
+    flg=False #URLを見つけられたか?
+    last=""   #URL
+    private=False
+    def find_href(self, i):
+        # <a href="..." >だった
+        if re.match(r"^https?://", i[1]):
+            #mailto:とかあるのでhttp://とhttps://だけ保存対象にする
+            if re.match(r"https://flemail\.flipboard\.com/redirect", i[1]):
+                #FlipboardからのメールでFlipboard経由のURLは保存しない
+                return
+
+            if re.match(r"^https://www\.facebook\.com/", i[1]):
+                # Facebookだった
+                if re.match(r"^https://www\.facebook\.com/n/\?saved%2Fredirect%2F", i[1]):
+                    # Facebookの保存のURLだった
+                    matched = re.search("&uri=[^&]*", i[1]).group() #行き先のURLでありuri=取り出し
+                    self.last =  urllib.unquote( re.sub(r"^&uri=", "", matched) ) #URI escape外し
+                    if not re.match(r"^http", matched):
+                        # 取り出したURLがhttpで始まっていなかったのでhttp追加
+                        matched ="https://www.facebook.com" + matched
+                        self.private = True #facebookないはとりあえずPrivateにする
+                    else:
+                        #facebookではリンク以外の配信停止などは保存しない
+                        return
+            else:
+                #facebookやflipboardからのリンク以外の普通のリンク
+                self.last= i[1]
+
+            self.flg=True
+
     def handle_starttag(self, tagname, attribute):
         if tagname.lower() == "a":
+            # <a ... >を探す
             for i in attribute:
                 if i[0].lower() == "href":
-                    if re.match(r"^https?://", i[1]):
-                        #mailto:とかあるのでhttp://だけ保存対象にする
-                        if re.match(r"https://www.facebook.com/", i[1]):
-                            if re.match(r"https://www.facebook.com/n/\?saved%2Fredirect%2F", i[1]):
-                                 matched = re.search("&uri=[^&]*", i[1]).group()
-                                 self.last =  urllib.unquote( re.sub(r"^&uri=", "", matched) )
-                            else:
-                                #facebookではリンク以外の配信停止などは保存しない
-                                continue
-                        else:
-                            #facebook以外
-                            self.last= i[1]
-                        self.flg=True
+                    # <a href="..." >だった
+                    self.find_href(i)
+
     def handle_data(self, data):
         if self.flg:
             data=re.sub(r"\s", "", data)
-            url.append({'url': self.last, 'title':data, 'desc': "", 'tags': "", 'private': False})
+            url.append({'url': self.last, 'title':data, 'desc': "", 'tags': "", 'private': self.private})
             self.flg=False
-        #TODO: urlとdescriptしか対応できていない。最低でもtagsとかほしいよね
+            self.private=False
+        #TODO: urlとtitleしか対応できていない。最低でもdesc、さらにtagsとかほしいよね
 
 class MyTextParser():
 #http://URLSs  --URLが来たときに前のがあったらpush
@@ -185,20 +206,28 @@ def main():
         if d['tags'] == "":
             # if re.search("Raspberry", d['title']):
             #     d['tags'] = "Raspberry Pi" + " autoTag"
-            if re.search("IoT", d['title']):
-                d['tags'] = "IoT" + " autoTag"
-            if re.search("経済", d['title']):
-                d['tags'] = "経済" + " autoTag"
-            if re.search("企業", d['title']):
-                d['tags'] = "企業" + " autoTag"
-            if re.search("新幹線", d['title']):
-                d['tags'] = "新幹線" + " autoTag"
-            if re.search("Windows", d['title']):
-                d['tags'] = "Windows" + " autoTag"
-            if re.search("SIM", d['title']):
-                d['tags'] = "SIM" + " autoTag"
+            if re.search(r"IoT", d['title']):
+                d['tags'] = "autoTag IoT"
+            elif re.search(r"経済", d['title']):
+                d['tags'] = "autoTag 経済"
+            elif re.search(r"企業", d['title']):
+                d['tags'] = "autoTag 企業"
+            elif re.search(r"新幹線", d['title']):
+                d['tags'] = "autoTag 新幹線"
+            elif re.search("(JR|鉄道)", d['title']):
+                d['tags'] = "autoTag 鉄道"
+            elif re.search(r"Windows", d['title'], re.I):
+                d['tags'] = "autoTag Windows"
+            elif re.search(r"SIM", d['title']):
+                d['tags'] = "autoTag SIM"
+            elif re.search(r"iPhone", d['title']):
+                d['tags'] = "autoTag iPhone"
+            elif re.search("Raspberry", d['title'], re.I):
+                d['tags'] = "autoTag RaspberryPi"
+            elif re.search("Aruduino", d['title'], re.I):
+                d['tags'] = "autoTag Aruduino"
             else:
-                d['tags'] = "autoTag"
+                d['tags'] = "noTag"
 
         #POSTパラメータは二つ目の引数に辞書で指定する
         response = requests.post(
@@ -208,7 +237,8 @@ def main():
              'extended': d['desc'],
              'tags': d['tags'],
              'replace': 'no', #scuttleでは無効 'yes'にできない。新規登録のみ
-             'shared': 'yes'  #scuttleでは無効 'no'にできない。常に共有
+             'shared': "yes" if d['private']==False else "no", #scuttleでは無効 'no'にできない。常に共有
+             'status': "0" if d['private']==False else "2" #scuttleでは0:default 1:shared 2:private
             },
             auth=(user, passwd))
 

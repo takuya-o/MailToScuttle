@@ -32,13 +32,14 @@ class MyHTMLParser(HTMLParser):
                     # Facebookの保存のURLだった
                     matched = re.search("&uri=[^&]*", i[1]).group() #行き先のURLでありuri=取り出し
                     self.last =  urllib.unquote( re.sub(r"^&uri=", "", matched) ) #URI escape外し
-                    if not re.match(r"^http", matched):
+                    if not re.match(r"^http", self.last):
                         # 取り出したURLがhttpで始まっていなかったのでhttp追加
-                        matched ="https://www.facebook.com" + matched
-                        self.private = True #facebookないはとりあえずPrivateにする
-                    else:
-                        #facebookではリンク以外の配信停止などは保存しない
-                        return
+                        self.last ="https://www.facebook.com" + self.last
+                        #facebook内のリンクはとりあえずPrivateにする
+                        self.private = True
+                else:
+                    #facebookではリンク以外の配信停止などは保存しない
+                    return
             else:
                 #facebookやflipboardからのリンク以外の普通のリンク
                 self.last= i[1]
@@ -55,11 +56,13 @@ class MyHTMLParser(HTMLParser):
 
     def handle_data(self, data):
         if self.flg:
-            data=re.sub(r"\s", "", data)
+            data=re.sub(r"\s", "", data) #本当は改行の時の空白だけ取りたい
             url.append({'url': self.last, 'title':data, 'desc': "", 'tags': "", 'private': self.private})
-            self.flg=False
-            self.private=False
-        #TODO: urlとtitleしか対応できていない。最低でもdesc、さらにtagsとかほしいよね
+            #print("URL:" + self.last + " Private:" + str(self.private))
+
+        self.flg=False
+        self.private=False
+
 
 class MyTextParser():
 #http://URLSs  --URLが来たときに前のがあったらpush
@@ -100,7 +103,7 @@ class MyTextParser():
                 self.uriflg = True
                 #print "FIND url:" + self.uri
             elif re.search(r"^\s*title:\s+", line, re.IGNORECASE):
-                self.title = re.sub(r"\s", "",
+                self.title = re.sub(r"\s$", "",
                                     re.sub(r"^\s*[tT][iI][tT][lL][eE]:\s+",
                                            "", line))
                 #print "FIND title:" + self.title
@@ -119,7 +122,7 @@ class MyTextParser():
                                         "", line) == "True" )
                 #print "FIND private:" + str(self.tags)
             elif self.uriflg and self.title == "":
-                self.title = re.sub(r"^\s*", "", line)
+                self.title = re.sub(r"^\s*", "", line) #本当はムダな…だけ
                 #print "FIND title:" + self.title
             self.uriflg=False #urlの次の行だけね
         self.flash()
@@ -142,6 +145,8 @@ def main():
     msg = email.message_from_file(sys.stdin)
     #print(msg.keys())
     subject=msg.get("Subject")
+    if subject is None:
+        subject = ""
     #print subject
 
     #エンコーディング判断
@@ -153,6 +158,8 @@ def main():
             msg_encoding = 'iso-2022-jp'
         elif re.match(r"=\?utf-8\?", subject, re.IGNORECASE):
             msg_encoding = 'utf-8'
+        elif re.match(r"=\?cp932\?", subject, re.IGNORECASE):
+            msg_encoding = 'cp932'
         else:
             msg_encoding = email_default_encoding
     #print("=== " + msg_encoding )
@@ -216,6 +223,8 @@ def main():
                 d['tags'] = "autoTag 新幹線"
             elif re.search("(JR|鉄道)", d['title']):
                 d['tags'] = "autoTag 鉄道"
+            elif re.search(r"たばこ", d['title']):
+                d['tags'] = "autoTag たばこ"
             elif re.search(r"Windows", d['title'], re.I):
                 d['tags'] = "autoTag Windows"
             elif re.search(r"SIM", d['title']):
@@ -226,6 +235,12 @@ def main():
                 d['tags'] = "autoTag RaspberryPi"
             elif re.search("Aruduino", d['title'], re.I):
                 d['tags'] = "autoTag Aruduino"
+            elif re.search("Amazon", d['title'], re.I):
+                d['tags'] = "autoTag Amazon"
+            elif re.search("Google", d['title'], re.I):
+                d['tags'] = "autoTag Google"
+            elif re.search("Oracle", d['title'], re.I):
+                d['tags'] = "autoTag Oracle"
             else:
                 d['tags'] = "noTag"
 
@@ -237,15 +252,15 @@ def main():
              'extended': d['desc'],
              'tags': d['tags'],
              'replace': 'no', #scuttleでは無効 'yes'にできない。新規登録のみ
-             'shared': "yes" if d['private']==False else "no", #scuttleでは無効 'no'にできない。常に共有
-             'status': "0" if d['private']==False else "2" #scuttleでは0:default 1:shared 2:private
+             'shared': "no" if d['private'] else "yes", #scuttleでは無効 'no'にできない。常に共有
+             'status': "2" if d['private'] else "0" #scuttleでは0:default 1:shared 2:private
             },
             auth=(user, passwd))
 
-        print("URL=" + d['url'])# + "  TITLE=" + d['title'])
+        print("URL=" + d['url'] + " PRIVATE=" + str(d['private']))
+        # + "  TITLE=" + d['title'])
         # print("DESC=" + d['desc'])
         # print("TAGS=" + d['tags'])
-        # print("PRIVATE=" + str(d['private']))
 
         if response.status_code == 200:
             #<result code="done" /> 正常終了なら無言
@@ -255,21 +270,6 @@ def main():
                 print "ERROR: " + res.group()
         else:
             print(response)
-
-#        %2Fredirect%2F&amp;object_id=1363881683627184&amp;surface=saved_email_reminder&amp;mechanism=clickable_content&amp;ndid=536c57d79b0e1G5af37e34383eG0G377G4a4ad872&amp;uri=http%3A%2F%2Fwww.itmedia.co.jp%2Fbusiness%2Farticles%2F1607%2F01%2Fnews032_3.html&amp;ext=1468807559&amp;hash=AeSz2jckCsCTt-Bw&amp;medium=email&amp;mid=536c57d79b0e1G5af37e34383eG0G377G4a4ad872&amp;bcode=1.1467597959.Abn9JZ7_LOr1-2o3&amp;n_m=takuya%40page.on-o.com" style="color: #3b5998; text-decoration: none; font-family: Helvetica Neue,Helvetica,Lucida Grande,tahoma,verdana,arial,sans-serif; font-size: 16px; line-height: 21px; font-weight: bold" target="_blank" rel="noreferrer">東海道新幹線の新型車両「N700S」はリニア時代の布石 (3/4)</a>
-# header=True
-# while True:
-#     try:
-#         i = raw_input()
-#         print(i)
-#         if re.match("^$", i):
-#             header=False
-#             print("==Header END==")
-#             continue
-#         if header:
-#             continue
-#     except EOFError:
-#         break
 
 if __name__=='__main__':
     main()

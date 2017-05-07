@@ -10,7 +10,7 @@ if [ "$NAME" == "release.sh" ];then
 fi
 
 git checkout master
-git ls-files |egrep -v "(test|example)"/ >$LIST
+git ls-files |egrep -v "(test/|example/|.gitlab-ci.yml|gitlab-runner.sh)" >$LIST
 tar cfz $FILE `cat $LIST`
 
 git checkout release
@@ -27,5 +27,7 @@ git add `cat $LIST`
 #git push origin V1.0
 #git push -u github release:master   #-u済みでも明示しないとreleaseブランチ行く
 #git push github V1.0
+#git checkout master
+#git tag V1.0release
 
 exit 0
